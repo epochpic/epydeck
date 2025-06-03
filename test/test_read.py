@@ -119,3 +119,19 @@ def test_read_file():
     assert "species" in data
     assert "proton" in data["species"]
     assert "electron" in data["species"]
+
+
+def test_include_identify_with_spaces():
+    text = """
+    begin:dist_fn
+      a = 1
+      identify: Electron
+      identify : Proton
+    end:dist_fn
+    """
+
+    data = epydeck.loads(text)
+
+    expected = {"dist_fn": {"a": 1, "identify": ["Electron", "Proton"]}}
+
+    assert expected == data

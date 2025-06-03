@@ -1,6 +1,7 @@
 from ast import literal_eval
 from io import TextIOBase, StringIO
 from collections import defaultdict
+import re
 
 # Specific deck keywords that use : instead of =
 special_keywords = ["include_species", "identify"]
@@ -49,7 +50,7 @@ def _parse_block(line: str, fh: TextIOBase) -> dict:
             break
 
         # Handle special keywords
-        if any(line.lower().startswith(f"{keyword}:") for keyword in special_keywords):
+        if any(re.match(rf"^{re.escape(keyword)}\s*:", line.lower()) for keyword in special_keywords):
             separator = ":"
         else:
             separator = "="
