@@ -3,6 +3,7 @@
 ![PyPI](https://img.shields.io/pypi/v/epydeck?color=blue)
 ![Build/Publish](https://github.com/epochpic/epydeck/actions/workflows/build_publish.yml/badge.svg)
 ![Tests](https://github.com/epochpic/epydeck/actions/workflows/tests.yml/badge.svg)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/15586339.svg)](https://doi.org/10.5281/zenodo.15586339)
 
 Epydeck (short for *EPOCH Python deck*) is an [EPOCH](https://epochpic.github.io/) input file (deck) reader/writer. Part of [BEAM](#broad-epoch-analysis-modules-beam) (Broad EPOCH Analysis Modules).
 
