@@ -82,18 +82,35 @@ _FUNCTIONS = {
 
 _BASE_NAMESPACE = {"__builtins__": {}, **CONSTANTS, **_FUNCTIONS}
 
-# Matches EPOCH's if() function
-_EPOCH_IF_PATTERN = re.compile(r"\bif\s*\(")
+# Functions that depend on simulation state or spatial position and therefore
+# cannot be reduced to a scalar at parse time.
+_UNEVALUATABLE_PATTERN = re.compile(
+    r"\b(?:"
+    r"if"  # conditional on spatial position
+    r"|interpolate"  # piecewise spatial interpolation
+    r"|number_density"  # species number density field
+    r"|temp(?:_[xyz])?"  # {temp}{x,y,z} - species temperature field
+    r"|[eb][xyz]"  # {e,b}{x,y,z} - electric and magnetic field components
+    r")\s*\("
+)
 
 
 def _evaluate_line(expr: str, namespace: dict) -> bool | int | float | None:
     """
     Try to evaluate an EPOCH expression to a number.
 
-    ``if()`` expressions are returned unchanged as strings since they are
-    spatially varying and cannot be reduced to a scalar.  Any other expression
-    that references an undefined variable or raises an error during evaluation
-    returns ``None``.
+    The following EPOCH functions depend on simulation state or spatial position
+    and cannot be reduced to a scalar at parse time. Expressions containing
+    them are returned unchanged as strings:
+
+    - ``if()`` - conditional on spatial position
+    - ``interpolate()`` - piecewise spatial interpolation
+    - ``number_density()`` - species number density field
+    - ``temp``, ``temp_{x,y,z}`` - species temperature field
+    - ``{e,b}{x,y,z}`` - electric / magnetic field components
+
+    Any other expression that references an undefined variable or raises an
+    error during evaluation returns ``None``.
 
     Parameters
     ----------
@@ -111,7 +128,7 @@ def _evaluate_line(expr: str, namespace: dict) -> bool | int | float | None:
         original string if it contains ``if()``, or ``None`` if evaluation
         failed due to an unresolved variable or other error.
     """
-    if _EPOCH_IF_PATTERN.search(expr):
+    if _UNEVALUATABLE_PATTERN.search(expr):
         return expr
 
     # Transform EPOCH expression syntax to Python eval-compatible syntax
@@ -132,7 +149,7 @@ def _evaluate_block(block: dict, namespace: dict, deferred: list) -> dict:
 
     Resolved values are written back into ``namespace`` immediately so later
     lines in the same block and later blocks can reference them. Items that
-    fail due to an unresolved variable (but are not ``if()`` expressions)
+    fail due to an unresolved variable (but are not the above functions)
     are appended to ``deferred`` for a second-pass retry.
 
     Parameters
@@ -184,18 +201,25 @@ def _evaluate_block(block: dict, namespace: dict, deferred: list) -> dict:
 
 def evaluate(deck: dict) -> dict:
     """
-    Evaluate mathematical expressions in an EPOCH ``input.deck``.
+    Evaluate mathematical expressions in an EPOCH ``input.deck``. If an
+    expression cannot be evaluated it is returned as a string.
 
     Blocks are processed in deck order with a single shared namespace so each
-    block can reference values resolved by any earlier block.  Items whose
+    block can reference values resolved by any earlier block. Items whose
     variables are not yet defined at the time they are encountered are
-    collected and retried once the full namespace has been built.  The retry
+    collected and retried once the full namespace has been built. The retry
     loop repeats until no further progress is made, handling chains of
     inter-block dependencies.
 
-    Expressions containing ``if()`` are never evaluated due to being spatial in
-    nature and are left as strings, as are expressions that still reference
-    undefined variables after all retries are exhausted.
+    The following EPOCH functions depend on simulation state or spatial position
+    and cannot be reduced to a scalar at parse time. Expressions containing
+    them are returned unchanged as strings:
+
+    - ``if()`` - conditional on spatial position
+    - ``interpolate()`` - piecewise spatial interpolation
+    - ``number_density()`` - species number density field
+    - ``temp``, ``temp_{x,y,z}`` - species temperature field
+    - ``{e,b}{x,y,z}`` - electric / magnetic field components
 
     .. warning::
         This function uses Python's built-in ``eval()`` to execute expression
