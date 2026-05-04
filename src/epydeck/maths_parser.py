@@ -197,6 +197,12 @@ def evaluate(deck: dict) -> dict:
     nature and are left as strings, as are expressions that still reference
     undefined variables after all retries are exhausted.
 
+    .. warning::
+        This function uses Python's built-in ``eval()`` to execute expression
+        strings read directly from the deck file. A malicious or corrupted
+        deck could contain expressions that cause harmful side-effects (e.g.
+        deleting files or making network calls).
+
     Parameters
     ----------
     deck : dict
