@@ -140,6 +140,20 @@ def test_extrablock_reference():
     )
 
 
+def test_extrablock_deferred_reference():
+    deck = epydeck.loads("""
+    begin:constant
+      laser_focus_x = -x_min
+	end:constant
+                         
+    begin:control
+  	  x_min = -45e-6
+	end:control
+    """)
+    result = evaluate(deck)
+    assert result["constant"]["laser_focus_x"] == pytest.approx(45e-6)
+
+
 # --- Constant block ---
 
 
@@ -350,6 +364,8 @@ def test_cone_deck():
     assert result["constant"]["omega"] == pytest.approx(omega)
     assert result["constant"]["den_cone"] == pytest.approx(4.0 * _critical(omega))
     assert result["constant"]["th"] == pytest.approx(1e-6 / 2.0)
+
+    assert result["laser"]["lambda"] == pytest.approx(lam)
 
     # Spatially-varying constants should remain as strings
     assert isinstance(result["constant"]["r"], str)

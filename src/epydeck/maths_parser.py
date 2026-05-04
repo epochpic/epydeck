@@ -86,79 +86,98 @@ _BASE_NAMESPACE = {"__builtins__": {}, **CONSTANTS, **_FUNCTIONS}
 _EPOCH_IF_PATTERN = re.compile(r"\bif\s*\(")
 
 
-def _preprocess(expr: str) -> str:
-    """Transform EPOCH expression syntax to Python eval-compatible syntax."""
-    # lambda is a Python keyword but EPOCH uses it as a variable name
-    expr = re.sub(r"\blambda\b", "_lambda", expr)
-    # EPOCH uses ^ for exponentiation
-    expr = expr.replace("^", "**")
-    return expr
-
-
-def _try_evaluate(expr: str, namespace: dict) -> bool | int | float | None:
+def _evaluate_line(expr: str, namespace: dict) -> bool | int | float | None:
     """
     Try to evaluate an EPOCH expression to a number.
 
-    Returns None if the expression contains if(), references undefined
-    variables, or cannot be reduced to a plain number.
-    """
-    if not isinstance(expr, str):
-        return None
-    if _EPOCH_IF_PATTERN.search(expr):
-        return None
+    ``if()`` expressions are returned unchanged as strings since they are
+    spatially varying and cannot be reduced to a scalar.  Any other expression
+    that references an undefined variable or raises an error during evaluation
+    returns ``None``.
 
-    processed = _preprocess(expr)
-    eval_namespace = {**_BASE_NAMESPACE, **namespace}
+    Parameters
+    ----------
+    expr : str
+        Raw EPOCH expression string, e.g. ``"2 * pi * c / lambda_L"``.
+    namespace : dict
+        Mapping of currently resolved variable names to their values.  The
+        EPOCH physical constants and built-in functions are merged in
+        automatically.
+
+    Returns
+    -------
+    bool | int | float | str | None
+        The evaluated result if the expression resolved to a scalar, the
+        original string if it contains ``if()``, or ``None`` if evaluation
+        failed due to an unresolved variable or other error.
+    """
+    if _EPOCH_IF_PATTERN.search(expr):
+        return expr
+
+    # Transform EPOCH expression syntax to Python eval-compatible syntax
+    # lambda is a Python keyword but EPOCH uses it as a variable name
+    processed = re.sub(r"\blambda\b", "_lambda", expr)
+    # EPOCH uses ^ for exponentiation
+    processed = processed.replace("^", "**")
 
     try:
-        result = eval(processed, eval_namespace)
-        if isinstance(result, (bool, int, float)):
-            return result
+        return eval(processed, {**_BASE_NAMESPACE, **namespace})
     except Exception:
-        pass
-    return None
+        return None
 
 
-def _evaluate_block(block: dict, namespace: dict) -> dict:
+def _evaluate_block(block: dict, namespace: dict, deferred: list) -> dict:
     """
-    Evaluate expressions in a block, accumulating resolved values so later
-    lines in the same block can reference earlier ones.
+    Evaluate expressions in a block against a shared mutable namespace.
+
+    Resolved values are written back into ``namespace`` immediately so later
+    lines in the same block and later blocks can reference them. Items that
+    fail due to an unresolved variable (but are not ``if()`` expressions)
+    are appended to ``deferred`` for a second-pass retry.
+
+    Parameters
+    ----------
+    block : dict
+        A single parsed block from the deck, e.g. the contents of a
+        ``begin:control`` / ``end:control`` section.
+    namespace : dict
+        Shared mutable mapping of all variable names resolved so far.
+        Updated in place as each expression is evaluated.
+    deferred : list
+        Accumulator for ``(result_dict, namespace_key, result_key, expr)``
+        tuples whose evaluation failed due to a missing variable.  Updated
+        in place.
+
+    Returns
+    -------
+    dict
+        The block with evaluatable string expressions replaced by their
+        numeric values; unevaluatable strings are left unchanged.
     """
     result = {}
-    local_namespace = dict(namespace)
 
     for key, value in block.items():
-        # lambda is reserved in Python but remap to _lambda in the namespace
+        # lambda is a reserved keyword in Python, remap it in the namespace
         namespace_key = "_lambda" if key == "lambda" else key
 
         # Blocks that contain the "name= ..." field are stored as nested
         # blocks in their parent block. e.g. species contains electrons,
         # ions, photons, etc.
         if isinstance(value, dict):
-            result[key] = _evaluate_block(value, local_namespace)
+            result[key] = _evaluate_block(value, namespace, deferred)
+
         elif isinstance(value, str):
-            evaluated = _try_evaluate(value, local_namespace)
+            evaluated = _evaluate_line(value, namespace)
             if evaluated is not None:
                 result[key] = evaluated
-                local_namespace[namespace_key] = evaluated
+                namespace[namespace_key] = evaluated
             else:
                 result[key] = value
+                deferred.append((result, namespace_key, key, value))
 
-        elif isinstance(value, list):
-            items = []
-            for v in value:
-                if isinstance(v, str):
-                    ev = _try_evaluate(v, local_namespace)
-                    items.append(ev if ev is not None else v)
-                else:
-                    items.append(v)
-            result[key] = items
-
-        elif isinstance(value, (bool, int, float)):
-            result[key] = value
-            local_namespace[namespace_key] = value
         else:
             result[key] = value
+            namespace[namespace_key] = value
 
     return result
 
@@ -167,58 +186,48 @@ def evaluate(deck: dict) -> dict:
     """
     Evaluate mathematical expressions in an EPOCH ``input.deck``.
 
-    This function evaluates the deck by first merging all ``constant`` blocks
-    into a single global namespace. This global list of constants is processed
-    and resolved before the parser looks at any other part of the simulation
-    setup. While this makes user-defined constants available throughout the
-    deck, it strictly enforces a "top-down" dependency where constants cannot
-    "look back" at variables defined in other blocks like control or species.
+    Blocks are processed in deck order with a single shared namespace so each
+    block can reference values resolved by any earlier block.  Items whose
+    variables are not yet defined at the time they are encountered are
+    collected and retried once the full namespace has been built.  The retry
+    loop repeats until no further progress is made, handling chains of
+    inter-block dependencies.
 
-    In practice, this means an expression like ``laser_focus = -x_min`` will
-    fail to evaluate if ``x_min`` is defined in the control block which is
-    placed before its definition in a ``constant`` block. Even though EPOCH
-    will handle this by evaluating blocks sequentially, ``epydeck`` merges
-    all the constant blocks into a single `dict` first. To ensure your deck
-    parses correctly, define your simulation bounds and laser parameters as
-    constants before assigning them to specific EPOCH control variables.
-
-    Resolves string expressions to floats where all referenced variables are
-    known. Uses EPOCH physical constants (via scipy) and any constants defined
-    in the deck's ``constant`` block. Expressions containing ``if()`` or
-    variables that have not been defined are left as strings.
-
-    Within each block, lines are processed in order so a line can reference
-    values defined earlier in the same block.
+    Expressions containing ``if()`` are never evaluated due to being spatial in
+    nature and are left as strings, as are expressions that still reference
+    undefined variables after all retries are exhausted.
 
     Parameters
     ----------
     deck : dict
-        Parsed EPOCH deck as returned by ``epydeck.load`` or ``epydeck.loads``.
+        Parsed EPOCH deck as returned by ``epydeck.load`` or ``epydeck.loads``
 
     Returns
     -------
     dict
-        Copy of the deck with evaluatable expressions resolved to floats.
+        Copy of the deck with evaluatable expressions resolved to numbers
     """
-    # Build the global namespace from the constant block first so those
-    # user-defined constants are available everywhere else in the deck.
     namespace: dict = {}
-
-    if "constant" in deck:
-        for key, value in deck["constant"].items():
-            # lambda is reserved in Python but remap to _lambda in the namespace
-            namespace_key = "_lambda" if key == "lambda" else key
-
-            if isinstance(value, str):
-                result = _try_evaluate(value, namespace)
-                if result is not None:
-                    namespace[namespace_key] = result
-
-            elif isinstance(value, (bool, int, float)):
-                namespace[namespace_key] = value
+    deferred: list[tuple[dict, str, str, str]] = []
 
     evaluated: dict = {}
     for block_name, block in deck.items():
-        evaluated[block_name] = _evaluate_block(block, namespace)
+        evaluated[block_name] = _evaluate_block(block, namespace, deferred)
+
+    # Retry items that failed because their dependencies were defined in a
+    # later block.  Repeat until no further progress is made in case deferred
+    # items depend on one another.
+    while deferred:
+        unresolved = []
+        for result_dict, namespace_key, result_key, expr in deferred:
+            value = _evaluate_line(expr, namespace)
+            if value is not None:
+                result_dict[result_key] = value
+                namespace[namespace_key] = value
+            else:
+                unresolved.append((result_dict, namespace_key, result_key, expr))
+        if len(unresolved) == len(deferred):
+            break  # no progress this iteration so remaining items cannot be resolved
+        deferred = unresolved
 
     return evaluated
