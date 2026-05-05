@@ -1,4 +1,6 @@
+import ast
 import math
+import operator
 import re
 
 from scipy.constants import (
@@ -11,6 +13,7 @@ from scipy.constants import (
     mu_0,
     pi,
 )
+from simpleeval import MAX_POWER, SimpleEval
 
 CONSTANTS = {
     "pi": pi,
@@ -80,7 +83,12 @@ _FUNCTIONS = {
     "critical": _critical,
 }
 
-_BASE_NAMESPACE = {"__builtins__": {}, **CONSTANTS, **_FUNCTIONS}
+_EVALUATOR = SimpleEval(names=CONSTANTS, functions=_FUNCTIONS)
+# simpleeval locks the max power input value to 4000000 which causes some of
+# the EPOCH statements to not evaluate. As recommended by their documentation
+# we can circumvent this by removing the max power limit for the pow operator
+# in simpleeval
+_EVALUATOR.operators[ast.Pow] = operator.pow
 
 # Functions that depend on simulation state or spatial position and therefore
 # cannot be reduced to a scalar at parse time.
@@ -137,8 +145,9 @@ def _evaluate_line(expr: str, namespace: dict) -> bool | int | float | None:
     # EPOCH uses ^ for exponentiation
     processed = processed.replace("^", "**")
 
+    _EVALUATOR.names = {**CONSTANTS, **namespace}
     try:
-        return eval(processed, {**_BASE_NAMESPACE, **namespace})
+        return _EVALUATOR.eval(processed)
     except Exception:
         return None
 
@@ -222,10 +231,9 @@ def evaluate(deck: dict) -> dict:
     - ``{e,b}{x,y,z}`` - electric / magnetic field components
 
     .. warning::
-        This function uses Python's built-in ``eval()`` to execute expression
-        strings read directly from the deck file. A malicious or corrupted
-        deck could contain expressions that cause harmful side-effects (e.g.
-        deleting files or making network calls).
+        Expression strings are evaluated using ``simpleeval``, which restricts
+        execution to arithmetic operations and the whitelisted EPOCH functions.
+        Only call this function on deck files from sources you trust.
 
     Parameters
     ----------

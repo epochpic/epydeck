@@ -17,7 +17,7 @@ license = { file = "LICENCE.md" }
 requires-python = ">=3.10"
 dynamic = ["version"]
 description = "An EPOCH plasma PIC code input file (deck) reader/writer."
-dependencies = ["scipy"]
+dependencies = ["scipy", "simpleeval==1.0.7"]
 
 [project.optional-dependencies]
 docs = [
