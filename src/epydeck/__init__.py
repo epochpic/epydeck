@@ -3,6 +3,8 @@ from io import TextIOBase, StringIO
 from collections import defaultdict
 import re
 
+from epydeck.maths_parser import evaluate, CONSTANTS
+
 # Specific deck keywords that use : instead of =
 special_keywords = ["include_species", "identify"]
 
