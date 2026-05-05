@@ -183,6 +183,8 @@ The following EPOCH physical constants are always available:
 | `micron`, `milli`, `micro`, `nano`, `pico`, `femto`, `atto` | SI prefixes / length units |
 | `cc` | Cubic centimetre ($10^{-6}$ m$^3$) |
 
+They can be accessed as a dictionary by calling `from epydeck import CONSTANTS`.
+
 Some expressions cannot be reduced to a scalar at parse time and are left as strings:
 
 - `if(a, b, c)` - conditional on spatial position
