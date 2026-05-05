@@ -13,7 +13,7 @@ from scipy.constants import (
     mu_0,
     pi,
 )
-from simpleeval import MAX_POWER, SimpleEval
+from simpleeval import SimpleEval
 
 CONSTANTS = {
     "pi": pi,
