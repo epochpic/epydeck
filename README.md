@@ -153,6 +153,48 @@ is represented by the following `dict`:
 
 </details>
 
+## Maths parser
+
+After loading a deck, string values such as `'1.06 * micron'` or `'2 * pi * c / lambda'` can be resolved to numbers using `epydeck.evaluate`:
+
+```python
+import epydeck
+
+with open(filename) as f:
+    deck = epydeck.load(f)
+
+evaluated = epydeck.evaluate(deck)
+```
+
+`evaluate` returns a copy of the deck with every expression it can resolve replaced by its numeric value. Expressions are evaluated in deck order. Each line can reference any variable defined earlier in the same block or any earlier block. Values that still depend on undefined variables after a full pass are retried automatically until no further progress can be made.
+
+The following EPOCH physical constants are always available:
+
+| Name | Value |
+|---|---|
+| `pi` | $\pi$ |
+| `kb` | Boltzmann's constant |
+| `me` | Electron mass |
+| `qe` | Elementary charge |
+| `c` | Speed of light |
+| `epsilon0` | Permittivity of free space |
+| `mu0` | Permeability of free space |
+| `ev`, `kev`, `mev` | Electronvolt, kilo-, mega- |
+| `micron`, `milli`, `micro`, `nano`, `pico`, `femto`, `atto` | SI prefixes / length units |
+| `cc` | Cubic centimetre ($10^{-6}$ m$^3$) |
+
+Some expressions cannot be reduced to a scalar at parse time and are left as strings:
+
+- `if(a, b, c)` - conditional on spatial position
+- `interpolate(interp_var, ..., n_pairs)` - piecewise spatial interpolation
+- `number_density(a)` - species number density field
+- `temp(a)`, `temp_{x,y,z}(a)` - species temperature field
+- `{e,b}{x,y,z}` - electric / magnetic field components
+- Any expression referencing a grid coordinate (`x`, `y`, `z`) or other undefined variable
+
+> [!WARNING]
+> `evaluate` executes expression strings from the deck file using `simpleeval`, which restricts execution to arithmetic operations and the whitelisted EPOCH functions. Only call this function on deck files from sources you trust.
+
 ## Citing
 
 If epydeck contributes to a project that leads to publication, please acknowledge this by citing epydeck. This can be done by clicking the "cite this repository" button located near the top right of this page.
